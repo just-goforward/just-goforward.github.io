@@ -3,15 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>소장품 키트 MDP 계산기</title>
-    <link rel="stylesheet" href="collection.css" />
+    <title>소장품 키트 계산기</title>
+    <link rel="stylesheet" href="collection.min.css" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
         <div>
           <p class="eyebrow">Collection Kit Optimizer</p>
-          <h1>소장품 키트 MDP 계산기</h1>
+          <h1>소장품 키트 계산기</h1>
+        </div>
+        <div class="theme-control" aria-label="테마 선택">
+          <span class="theme-label">테마</span>
+          <button class="theme-button" type="button" data-theme-mode="system">자동</button>
+          <button class="theme-button" type="button" data-theme-mode="light">라이트</button>
+          <button class="theme-button" type="button" data-theme-mode="dark">다크</button>
         </div>
       </header>
 
@@ -43,6 +49,10 @@
         <section class="panel stock-panel">
           <div class="section-heading">
             <h2>보유 키트</h2>
+          </div>
+
+          <div id="stockEditNotice" class="stock-edit-notice" hidden>
+            대성공이 발생했습니다. 보유 키트 수를 직접 수정해 주세요.
           </div>
 
           <div class="kit-grid">
@@ -100,6 +110,13 @@
           </div>
           <div id="detailBox" class="empty-result">계산 후 선택 근거와 검산 결과가 표시됩니다.</div>
         </section>
+
+        <section id="globalStatsPanel" class="panel stats-panel" hidden>
+          <div class="section-heading">
+            <h2>전체 통계</h2>
+          </div>
+          <div id="globalStatsBox" class="empty-result">통계 서버를 연결하면 전체 사용자 결과가 표시됩니다.</div>
+        </section>
       </section>
     </main>
 
@@ -111,7 +128,13 @@
       </div>
     </div>
 
-    <script src="collection-solver.js"></script>
-    <script src="collection-app.js"></script>
+    <script>
+      window.COLLECTION_STATS_CONFIG = {
+        endpoint: "",
+        turnstileSiteKey: "",
+      };
+    </script>
+    <script src="collection-solver.min.js"></script>
+    <script src="collection-app.min.js"></script>
   </body>
 </html>
