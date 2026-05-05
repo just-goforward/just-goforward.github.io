@@ -1,0 +1,547 @@
+(function (root) {
+  "use strict";
+
+  const KIT_ORDER = ["blue", "purple", "yellow"];
+  const KIT_META = {
+    blue: { label: "초심자용 관리 키트", shortLabel: "초심자", exp: 200 },
+    purple: { label: "중급자용 관리 키트", shortLabel: "중급자", exp: 500 },
+    yellow: { label: "상급자용 관리 키트", shortLabel: "상급자", exp: 1000 },
+  };
+
+  const FIXED_REQUIRED_EXP = { R: 1000, SR: 3000 };
+  const MAX_RELEVANT_USES = { blue: 220, purple: 88, yellow: 44 };
+
+  const GREAT_SUCCESS = {
+    R: {
+      blue: [null, 20.8, 24.0, 27.2, 40.0, 16.0, 19.2, 22.4, 27.2, 40.0, 14.4, 17.6, 22.4, 27.2, 40.0],
+      purple: [null, 65.0, 75.0, 85.0, 100.0, 50.0, 60.0, 70.0, 85.0, 100.0, 45.0, 55.0, 70.0, 85.0, 100.0],
+      yellow: [null, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+    },
+    SR: {
+      blue: [null, 5.9, 7.8, 11.3, 15.0, 2.2, 3.3, 4.9, 7.6, 12.5, 1.2, 2.2, 3.1, 4.7, 10.0],
+      purple: [null, 19.8, 28.7, 41.3, 55.0, 8.0, 12.0, 18.0, 28.0, 50.0, 5.4, 9.9, 14.4, 21.6, 45.0],
+      yellow: [null, 40.0, 55.0, 75.0, 100.0, 20.0, 30.0, 45.0, 70.0, 100.0, 15.0, 27.5, 40.0, 60.0, 100.0],
+    },
+  };
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function round(value, digits = 3) {
+    const unit = 10 ** digits;
+    return Math.round((value + Number.EPSILON) * unit) / unit;
+  }
+
+  function normalizeState(state) {
+    const grade = state && state.grade === "SR" ? "SR" : "R";
+    const level = Math.max(1, Math.floor(Number(state && state.level) || 1));
+    const exp = Math.max(0, Math.floor(Number(state && state.exp) || 0));
+    if (grade === "SR" && level >= 15) return { grade: "SR", level: 15, exp: 0 };
+    if (grade === "R" && level >= 15) return { grade: "R", level: 15, exp: 0 };
+    return { grade, level: clamp(level, 1, 14), exp };
+  }
+
+  function isTerminal(state) {
+    const normalized = normalizeState(state);
+    return normalized.grade === "SR" && normalized.level >= 15;
+  }
+
+  function isConvertState(state) {
+    const normalized = normalizeState(state);
+    return normalized.grade === "R" && normalized.level >= 15;
+  }
+
+  function convertState() {
+    return { grade: "SR", level: 5, exp: 0 };
+  }
+
+  function nextBoundary(level) {
+    if (level < 5) return 5;
+    if (level < 10) return 10;
+    return 15;
+  }
+
+  function failState(state, kit) {
+    let grade = state.grade;
+    let level = state.level;
+    let exp = state.exp + KIT_META[kit].exp;
+    const required = FIXED_REQUIRED_EXP[grade];
+
+    while (exp >= required && level < 15) {
+      exp -= required;
+      level += 1;
+      if (level === 5 || level === 10 || level === 15) {
+        exp = 0;
+        break;
+      }
+    }
+    return normalizeState({ grade, level, exp });
+  }
+
+  function transition(state, kit) {
+    const normalized = normalizeState(state);
+    if (isTerminal(normalized) || isConvertState(normalized)) {
+      return { probability: 0, success: normalized, fail: normalized };
+    }
+    const probability = GREAT_SUCCESS[normalized.grade][kit][normalized.level] / 100;
+    return {
+      probability,
+      success: normalizeState({
+        grade: normalized.grade,
+        level: nextBoundary(normalized.level),
+        exp: 0,
+      }),
+      fail: failState(normalized, kit),
+    };
+  }
+
+  function stateText(state) {
+    const normalized = normalizeState(state);
+    if (normalized.grade === "SR" && normalized.level >= 15) return "SR 15레벨";
+    return `${normalized.grade} ${normalized.level}레벨 ${normalized.exp}exp`;
+  }
+
+  function stateKey(state) {
+    const normalized = normalizeState(state);
+    return `${normalized.grade}|${normalized.level}|${normalized.exp}`;
+  }
+
+  function stockKey(stock) {
+    return `${stock.blue}|${stock.purple}|${stock.yellow}`;
+  }
+
+  function normalizeStock(stock) {
+    return {
+      blue: Math.max(0, Math.floor(Number(stock && stock.blue) || 0)),
+      purple: Math.max(0, Math.floor(Number(stock && stock.purple) || 0)),
+      yellow: Math.max(0, Math.floor(Number(stock && stock.yellow) || 0)),
+    };
+  }
+
+  function stockToUses(stock) {
+    return {
+      blue: Math.floor(stock.blue / 10),
+      purple: Math.floor(stock.purple / 10),
+      yellow: Math.floor(stock.yellow / 10),
+    };
+  }
+
+  function decrementStock(stock, kit) {
+    return {
+      blue: stock.blue - (kit === "blue" ? 1 : 0),
+      purple: stock.purple - (kit === "purple" ? 1 : 0),
+      yellow: stock.yellow - (kit === "yellow" ? 1 : 0),
+    };
+  }
+
+  function addUse(vector, kit) {
+    return {
+      blue: vector.blue + (kit === "blue" ? 10 : 0),
+      purple: vector.purple + (kit === "purple" ? 10 : 0),
+      yellow: vector.yellow + (kit === "yellow" ? 10 : 0),
+    };
+  }
+
+  function mixVector(probability, success, fail, kit) {
+    return addUse(
+      {
+        blue: probability * success.blue + (1 - probability) * fail.blue,
+        purple: probability * success.purple + (1 - probability) * fail.purple,
+        yellow: probability * success.yellow + (1 - probability) * fail.yellow,
+      },
+      kit,
+    );
+  }
+
+  function totalKits(vector) {
+    return KIT_ORDER.reduce((sum, kit) => sum + vector[kit], 0);
+  }
+
+  function pressureScore(vector, initialUses) {
+    return KIT_ORDER.reduce((sum, kit) => {
+      const base = Math.max(1, initialUses[kit]);
+      return sum + vector[kit] / 10 / base;
+    }, 0);
+  }
+
+  function betterValue(a, b) {
+    if (!b) return true;
+    if (Math.abs(a.successProbability - b.successProbability) > 1e-12) {
+      return a.successProbability > b.successProbability;
+    }
+    if (Math.abs(a.pressure - b.pressure) > 1e-12) return a.pressure < b.pressure;
+    return totalKits(a.vector) < totalKits(b.vector);
+  }
+
+  function finiteInventoryMdp(input, progress) {
+    const memo = new Map();
+    const policy = new Map();
+    const initialUses = input.actualStockUses || input.stockUses;
+    let visited = 0;
+
+    function value(state, stock) {
+      const normalized = normalizeState(state);
+      if (isTerminal(normalized)) {
+        return {
+          successProbability: 1,
+          pressure: 0,
+          vector: { blue: 0, purple: 0, yellow: 0 },
+          firstAction: null,
+        };
+      }
+
+      if (isConvertState(normalized)) {
+        return value(convertState(), stock);
+      }
+
+      if (stock.blue <= 0 && stock.purple <= 0 && stock.yellow <= 0) {
+        return {
+          successProbability: 0,
+          pressure: 0,
+          vector: { blue: 0, purple: 0, yellow: 0 },
+          firstAction: null,
+        };
+      }
+
+      const key = `${stateKey(normalized)}|${stockKey(stock)}`;
+      if (memo.has(key)) return memo.get(key);
+      visited += 1;
+      if (progress && visited % 50000 === 0) {
+        progress({ phase: "mdp", scanned: visited, total: null });
+      }
+
+      let best = null;
+      for (const kit of KIT_ORDER) {
+        if (stock[kit] <= 0) continue;
+        const nextStock = decrementStock(stock, kit);
+        const edge = transition(normalized, kit);
+        const success = value(edge.success, nextStock);
+        const fail = value(edge.fail, nextStock);
+        const vector = mixVector(edge.probability, success.vector, fail.vector, kit);
+        const candidate = {
+          firstAction: kit,
+          successProbability:
+            edge.probability * success.successProbability +
+            (1 - edge.probability) * fail.successProbability,
+          pressure: pressureScore(vector, initialUses),
+          vector,
+          edge,
+        };
+        if (betterValue(candidate, best)) best = candidate;
+      }
+
+      memo.set(key, best);
+      policy.set(key, best ? best.firstAction : null);
+      return best;
+    }
+
+    const startValue = value(input.start, input.stockUses);
+    return {
+      ...startValue,
+      states: memo.size,
+      actionFor: (state, stock) => {
+        return policy.get(`${stateKey(normalizeState(state))}|${stockKey(stock)}`) || null;
+      },
+      valueForAction: (state, stock, kit) => {
+        if (stock[kit] <= 0) return null;
+        const edge = transition(state, kit);
+        const nextStock = decrementStock(stock, kit);
+        const success = value(edge.success, nextStock);
+        const fail = value(edge.fail, nextStock);
+        const vector = mixVector(edge.probability, success.vector, fail.vector, kit);
+        return {
+          name: "보유량 유한 MDP",
+          firstAction: kit,
+          firstProbability: edge.probability,
+          success: edge.success,
+          fail: edge.fail,
+          successProbability:
+            edge.probability * success.successProbability +
+            (1 - edge.probability) * fail.successProbability,
+          pressure: pressureScore(vector, initialUses),
+          vector,
+          totalKits: totalKits(vector),
+        };
+      },
+    };
+  }
+
+  function buildFailureRoute(input, actionFor, limit = 8) {
+    const route = [];
+    let state = normalizeState(input.start);
+    let stock = { ...input.stockUses };
+
+    for (let index = 0; index < limit; index += 1) {
+      if (isTerminal(state)) break;
+      if (isConvertState(state)) {
+        route.push({
+          state: stateText(state),
+          kit: "convert",
+          probability: 1,
+          success: stateText(convertState()),
+          fail: stateText(convertState()),
+          stockBefore: { ...stock },
+        });
+        state = convertState();
+        continue;
+      }
+      const kit = actionFor(state, stock);
+      if (!kit || stock[kit] <= 0) break;
+      const edge = transition(state, kit);
+      route.push({
+        state: stateText(state),
+        kit,
+        probability: edge.probability,
+        success: stateText(edge.success),
+        fail: stateText(edge.fail),
+        stockBefore: { ...stock },
+      });
+      stock = decrementStock(stock, kit);
+      state = edge.fail;
+    }
+
+    return route;
+  }
+
+  function buildRecommendedRun(input, actionFor, limit = 100) {
+    let state = normalizeState(input.start);
+    let stock = { ...input.stockUses };
+    const kit = actionFor(state, stock);
+    if (!kit || stock[kit] <= 0) return null;
+
+    const firstEdge = transition(state, kit);
+    const successTarget = firstEdge.success;
+    let count = 0;
+    let noGreatSuccessProbability = 1;
+
+    while (count < limit && !isTerminal(state) && !isConvertState(state) && stock[kit] > 0) {
+      const nextKit = actionFor(state, stock);
+      if (nextKit !== kit) break;
+      const edge = transition(state, kit);
+      if (stateKey(edge.success) !== stateKey(successTarget)) break;
+      count += 1;
+      noGreatSuccessProbability *= 1 - edge.probability;
+      stock = decrementStock(stock, kit);
+      const fail = edge.fail;
+      const leveledUp = fail.grade !== state.grade || fail.level !== state.level;
+      state = fail;
+      if (leveledUp) break;
+    }
+
+    return {
+      kit,
+      count,
+      success: successTarget,
+      fail: state,
+      greatSuccessProbability: 1 - noGreatSuccessProbability,
+      noGreatSuccessProbability,
+    };
+  }
+
+  function makeRandom(seed) {
+    let value = seed >>> 0;
+    return function random() {
+      value = (value * 1664525 + 1013904223) >>> 0;
+      return value / 4294967296;
+    };
+  }
+
+  function simulate(input, actionFor, runs = 12000) {
+    const random = makeRandom(20260505);
+    const totals = { blue: 0, purple: 0, yellow: 0 };
+    let completed = 0;
+
+    for (let run = 0; run < runs; run += 1) {
+      let state = normalizeState(input.start);
+      let stock = { ...input.stockUses };
+      const used = { blue: 0, purple: 0, yellow: 0 };
+
+      for (let step = 0; step < 1000; step += 1) {
+        if (isTerminal(state)) {
+          completed += 1;
+          break;
+        }
+        if (isConvertState(state)) {
+          state = convertState();
+          continue;
+        }
+        const kit = actionFor(state, stock);
+        if (!kit || stock[kit] <= 0) break;
+        stock = decrementStock(stock, kit);
+        used[kit] += 10;
+        const edge = transition(state, kit);
+        state = random() < edge.probability ? edge.success : edge.fail;
+      }
+
+      for (const kit of KIT_ORDER) totals[kit] += used[kit];
+    }
+
+    return {
+      runs,
+      completed,
+      successProbability: completed / runs,
+      vector: {
+        blue: totals.blue / runs,
+        purple: totals.purple / runs,
+        yellow: totals.yellow / runs,
+      },
+    };
+  }
+
+  function normalizeInput(input) {
+    const grade = input.start && input.start.grade === "SR" ? "SR" : "R";
+    const required = FIXED_REQUIRED_EXP[grade];
+    const exp = clamp(Math.floor((Number(input.start && input.start.exp) || 0) / 100) * 100, 0, required - 100);
+    const stock = normalizeStock(input.stock || {});
+    const actualStockUses = stockToUses(stock);
+
+    return {
+      start: normalizeState({
+        grade,
+        level: input.start ? input.start.level : 1,
+        exp,
+      }),
+      stock,
+      actualStockUses,
+      stockUses: {
+        blue: Math.min(actualStockUses.blue, MAX_RELEVANT_USES.blue),
+        purple: Math.min(actualStockUses.purple, MAX_RELEVANT_USES.purple),
+        yellow: Math.min(actualStockUses.yellow, MAX_RELEVANT_USES.yellow),
+      },
+      requiredExp: FIXED_REQUIRED_EXP,
+    };
+  }
+
+  function solve(input, progress) {
+    const normalizedInput = normalizeInput(input);
+    if (progress) progress({ phase: "build", scanned: 0, total: 1 });
+
+    if (isTerminal(normalizedInput.start)) {
+      return {
+        terminal: true,
+        input: normalizedInput,
+        message: "이미 SR 15레벨입니다.",
+      };
+    }
+
+    if (isConvertState(normalizedInput.start)) {
+      return {
+        possible: true,
+        convertOnly: true,
+        input: normalizedInput,
+        best: {
+          name: "등급 전환",
+          firstAction: "convert",
+          firstProbability: 1,
+          success: convertState(),
+          fail: convertState(),
+          vector: { blue: 0, purple: 0, yellow: 0 },
+          totalKits: 0,
+          successProbability: 1,
+          pressure: 0,
+        },
+        route: [],
+        monteCarlo: {
+          runs: 0,
+          completed: 0,
+          successProbability: 1,
+          vector: { blue: 0, purple: 0, yellow: 0 },
+        },
+        stats: {
+          states: 0,
+          exact: true,
+          tolerance: 0,
+          iterations: 0,
+        },
+        topCandidates: [],
+      };
+    }
+
+    const totalUses =
+      normalizedInput.stockUses.blue + normalizedInput.stockUses.purple + normalizedInput.stockUses.yellow;
+    if (totalUses <= 0) {
+      return {
+        possible: false,
+        input: normalizedInput,
+        message: "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
+      };
+    }
+
+    const mdp = finiteInventoryMdp(normalizedInput, progress);
+    const bestAction = mdp.firstAction;
+    if (!bestAction) {
+      return {
+        possible: false,
+        input: normalizedInput,
+        message: "현재 보유 키트로 가능한 행동이 없습니다.",
+      };
+    }
+
+    const actionValues = KIT_ORDER.map((kit) => mdp.valueForAction(normalizedInput.start, normalizedInput.stockUses, kit))
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (Math.abs(a.successProbability - b.successProbability) > 1e-12) {
+          return b.successProbability - a.successProbability;
+        }
+        if (Math.abs(a.pressure - b.pressure) > 1e-12) return a.pressure - b.pressure;
+        return a.totalKits - b.totalKits;
+      });
+
+    const best = actionValues[0];
+    const run = buildRecommendedRun(normalizedInput, mdp.actionFor);
+    const route = buildFailureRoute(normalizedInput, mdp.actionFor);
+    const monteCarlo = simulate(normalizedInput, mdp.actionFor);
+    if (progress) progress({ phase: "done", scanned: 1, total: 1 });
+
+    return {
+      possible: true,
+      terminal: false,
+      input: normalizedInput,
+      candidateCount: actionValues.length,
+      best: {
+        name: "보유량 유한 MDP",
+        firstAction: best.firstAction,
+        firstProbability: best.firstProbability,
+        run,
+        success: best.success,
+        fail: best.fail,
+        vector: best.vector,
+        totalKits: best.totalKits,
+        successProbability: best.successProbability,
+        pressure: best.pressure,
+      },
+      route,
+      monteCarlo,
+      stats: {
+        states: mdp.states,
+        exact: true,
+        tolerance: 0,
+        iterations: 0,
+      },
+      topCandidates: actionValues.map((candidate) => ({
+        name: candidate.name,
+        firstAction: candidate.firstAction,
+        vector: Object.fromEntries(KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)])),
+        totalKits: round(candidate.totalKits, 4),
+        successProbability: round(candidate.successProbability, 8),
+        pressure: round(candidate.pressure, 8),
+      })),
+    };
+  }
+
+  root.CollectionSolver = {
+    KIT_ORDER,
+    KIT_META,
+    FIXED_REQUIRED_EXP,
+    MAX_RELEVANT_USES,
+    GREAT_SUCCESS,
+    nextBoundary,
+    transition,
+    normalizeState,
+    convertState,
+    describeState: stateText,
+    solve,
+    round,
+  };
+})(typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : globalThis);
